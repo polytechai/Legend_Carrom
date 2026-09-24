@@ -1,0 +1,6 @@
+{
+  "name": "Carrom Aim",
+  "description": "Carrom disc pool physics trajectory engine, interactive 2D practice board simulator, trick shot library, and overlay guidance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
