@@ -1,116 +1,100 @@
 plugins {
-  alias(libs.plugins.android.application)
-  alias(libs.plugins.kotlin.compose)
-  alias(libs.plugins.google.devtools.ksp)
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
 }
 
 android {
-  namespace = "com.example"
-  // Must be 36 to satisfy modern AndroidX (core-ktx 1.18.0 & activity 1.10.1)
-  compileSdk = 36
+    namespace = "com.polytechai.legendcarrom"
+    compileSdk = 34
 
-  defaultConfig {
-    applicationId = "com.aistudio.carromaim.wkpzq"
-    minSdk = 24
-    targetSdk = 34
-    versionCode = 1
-    versionName = "1.0"
+    defaultConfig {
+        applicationId = "com.polytechai.legendcarrom"
+        minSdk = 21
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
 
-    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-  }
-
-  signingConfigs {
-    create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables {
+            useSupportLibrary = true
+        }
     }
-    create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
+
+    signingConfigs {
+        create("debugConfig") {
+            storeFile = file("${rootDir}/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
-  }
 
-  buildTypes {
-    release {
-      isCrunchPngs = false
-      isMinifyEnabled = false
-      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("debugConfig")
+        }
     }
-    debug {
-      signingConfig = signingConfigs.getByName("debugConfig")
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
-  }
 
-  compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
-  }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
 
-  buildFeatures {
-    compose = true
-    buildConfig = true
-  }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
 
-  testOptions {
-    unitTests { isIncludeAndroidResources = true }
-  }
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.8"
+    }
 
-  dependenciesInfo {
-    includeInApk = false
-    includeInBundle = true
-  }
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
 }
 
 dependencies {
-  // Jetpack Compose & Material 3
-  implementation(platform(libs.androidx.compose.bom))
-  implementation(libs.androidx.activity.compose)
-  implementation(libs.androidx.compose.material.icons.core)
-  implementation(libs.androidx.compose.material.icons.extended)
-  implementation(libs.androidx.compose.material3)
-  implementation(libs.androidx.compose.ui)
-  implementation(libs.androidx.compose.ui.graphics)
-  implementation(libs.androidx.compose.ui.tooling.preview)
+    // AndroidX & Core UI
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.android.material:material:1.11.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
-  // Core & Lifecycle
-  implementation(libs.androidx.core.ktx)
-  implementation(libs.androidx.lifecycle.runtime.compose)
-  implementation(libs.androidx.lifecycle.runtime.ktx)
-  implementation(libs.androidx.lifecycle.viewmodel.compose)
+    // Jetpack Compose (BOM 2024.02.00 is aligned with Kotlin 1.9.22 & Compiler 1.5.8)
+    implementation(platform("androidx.compose:compose-bom:2024.02.00"))
+    implementation("androidx.activity:activity-compose:1.8.2")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
 
-  // Room Persistence
-  implementation(libs.androidx.room.ktx)
-  implementation(libs.androidx.room.runtime)
+    // Coroutines & Networking (for in-app updates & API requests)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-  // Networking & Serialization (for In-App GitHub Updates)
-  implementation(libs.okhttp)
-  implementation(libs.retrofit)
-  implementation(libs.converter.moshi)
-  implementation(libs.moshi.kotlin)
-  implementation(libs.logging.interceptor)
-
-  // Coroutines
-  implementation(libs.kotlinx.coroutines.android)
-  implementation(libs.kotlinx.coroutines.core)
-
-  // Unit Testing
-  testImplementation(libs.androidx.compose.ui.test.junit4)
-  testImplementation(libs.androidx.core)
-  testImplementation(libs.androidx.junit)
-  testImplementation(libs.junit)
-  testImplementation(libs.kotlinx.coroutines.test)
-  testImplementation(libs.robolectric)
-
-  debugImplementation(libs.androidx.compose.ui.test.manifest)
-  debugImplementation(libs.androidx.compose.ui.tooling)
-
-  // KSP Annotations
-  "ksp"(libs.androidx.room.compiler)
-  "ksp"(libs.moshi.kotlin.codegen)
+    // Debugging & Testing
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.02.00"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }
