@@ -23,37 +23,27 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.5
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '9.3.1'
+          gradle-version: '8.5'
 
-      - name: Prepare Keystore and Environment
+      - name: Ensure Keystore & Gradle Wrapper
         run: |
-          touch .env
-          if [ -f "debug.keystore.base64" ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          elif [ ! -f "debug.keystore" ]; then
+          # Create debug.keystore if missing to ensure signing succeeds on CI
+          if [ ! -f "debug.keystore" ]; then
             keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
-
-      - name: Ensure Gradle Wrapper Executable
-        run: |
+          # Ensure gradlew exists and is executable
           if [ ! -f "gradlew" ]; then
-            echo "Generating Gradle wrapper..."
-            gradle wrapper --gradle-version 9.3.1
+            gradle wrapper --gradle-version 8.5
           fi
           chmod +x gradlew
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
 
-      - name: Verify APK Output
-        run: |
-          echo "Listing generated APK files:"
-          ls -la app/build/outputs/apk/debug/
-
-      - name: Upload Debug APK Artifact
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: Carrom-Pro-Guide-APK
