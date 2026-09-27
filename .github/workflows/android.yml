@@ -5,7 +5,7 @@ on:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
-  workflow_dispatch: # Allows manual trigger from the GitHub Actions tab
+  workflow_dispatch:
 
 jobs:
   build:
@@ -23,7 +23,7 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Set up Gradle Tooling
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '9.3.1'
@@ -32,14 +32,12 @@ jobs:
         run: |
           touch .env
           if [ -f "debug.keystore.base64" ]; then
-            echo "Decoding existing debug.keystore.base64..."
             base64 -d debug.keystore.base64 > debug.keystore
           elif [ ! -f "debug.keystore" ]; then
-            echo "Generating new debug.keystore for CI signing..."
             keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      - name: Ensure Gradle Wrapper Exists and is Executable
+      - name: Ensure Gradle Wrapper Executable
         run: |
           if [ ! -f "gradlew" ]; then
             echo "Generating Gradle wrapper..."
