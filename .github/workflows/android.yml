@@ -30,18 +30,18 @@ jobs:
 
       - name: Ensure Keystore & Gradle Wrapper
         run: |
-          # Create debug.keystore if missing to ensure signing succeeds on CI
+          # 1. Ensure debug.keystore exists so signing succeeds on CI
           if [ ! -f "debug.keystore" ]; then
             keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
-          # Ensure gradlew exists and is executable
+          # 2. Ensure gradlew wrapper exists
           if [ ! -f "gradlew" ]; then
             gradle wrapper --gradle-version 8.5
           fi
           chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --stacktrace --warning-mode all
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
