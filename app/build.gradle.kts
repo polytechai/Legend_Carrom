@@ -20,15 +20,6 @@ android {
         }
     }
 
-    signingConfigs {
-        create("debugConfig") {
-            storeFile = file("${rootDir}/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-        }
-    }
-
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -38,7 +29,8 @@ android {
             )
         }
         debug {
-            signingConfig = signingConfigs.getByName("debugConfig")
+            // সায়েনিং কনফিগারেশনের কাস্টম ফাইল সরিয়ে দেওয়া হয়েছে
+            // এতে ডিফল্ট অ্যান্ড্রয়েড কি-স্টোর ব্যবহার হবে
         }
     }
 
