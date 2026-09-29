@@ -59,6 +59,14 @@ class FloatingControlView(
         background = bgDrawable
         setPadding((8 * density).toInt(), (6 * density).toInt(), (8 * density).toInt(), (6 * density).toInt())
 
+        // Sub controls row initialized upfront before any click listener references it
+        subControlsLayout = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+            setPadding(0, (6 * density).toInt(), 0, 0)
+        }
+
         // Header / Drag bar row
         val headerRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
@@ -110,14 +118,7 @@ class FloatingControlView(
 
         addView(headerRow)
 
-        // Sub controls row (expandable quick controls)
-        subControlsLayout = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            visibility = View.GONE
-            setPadding(0, (6 * density).toInt(), 0, 0)
-        }
-
+        // Populate sub controls
         cushionBtn = TextView(context).apply {
             text = "Cushions: ON"
             textSize = 10f
