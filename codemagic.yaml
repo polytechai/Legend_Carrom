@@ -13,6 +13,6 @@ workflows:
             gradle wrapper
           fi
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --stacktrace
     artifacts:
       - app/build/outputs/**/*.apk
