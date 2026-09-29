@@ -63,8 +63,9 @@ class PhysicsCalculator(
         var cutAngleDeg = 0f
 
         if (firstPuckHit != null) {
-            // Direct hit on a puck
-            targetPuck = firstPuckHit.puck
+            // Direct hit on a puck: assign to local immutable val to avoid closure smart cast error
+            val hitTargetPuck = firstPuckHit.puck
+            targetPuck = hitTargetPuck
             val ghostPos = strikerPos + dir * firstPuckHit.distance
             contactGhostPos = ghostPos
 
@@ -73,7 +74,7 @@ class PhysicsCalculator(
             nodes.add(TrajectoryNode(ghostPos, TrajectoryNodeType.PUCK_CONTACT, "Contact Point", radius = board.strikerRadius))
 
             // Collision normal (Center of ghost striker to Center of target puck)
-            val normal = (targetPuck.position - ghostPos).normalized()
+            val normal = (hitTargetPuck.position - ghostPos).normalized()
             val tangent = Vector2D(-normal.y, normal.x)
 
             // Striker cut angle
@@ -88,11 +89,11 @@ class PhysicsCalculator(
             }
 
             // Target puck trajectory along collision normal
-            var puckRayOrigin = targetPuck.position
-            var puckRayDir = normal
+            val puckRayOrigin = hitTargetPuck.position
+            val puckRayDir = normal
 
             // Check if target puck hits a secondary puck (Chain shot / combo)
-            val remainingPucks = activePucks.filter { it.id != targetPuck.id }
+            val remainingPucks = activePucks.filter { it.id != hitTargetPuck.id }
             val secondaryHit = if (allowSecondaryCollision) {
                 findEarliestPuckCollision(
                     origin = puckRayOrigin,
@@ -103,15 +104,16 @@ class PhysicsCalculator(
             } else null
 
             if (secondaryHit != null) {
-                secondaryPuck = secondaryHit.puck
+                val hitSecPuck = secondaryHit.puck
+                secondaryPuck = hitSecPuck
                 val secGhost = puckRayOrigin + puckRayDir * secondaryHit.distance
                 puckSegments.add(TrajectorySegment(puckRayOrigin, secGhost, isPuckPath = true))
                 nodes.add(TrajectoryNode(secGhost, TrajectoryNodeType.SECONDARY_CONTACT, "Combo Impact"))
 
                 // Secondary puck direction
-                val secNormal = (secondaryPuck.position - secGhost).normalized()
+                val secNormal = (hitSecPuck.position - secGhost).normalized()
                 val secEnd = calculateCushionOrPocketPath(
-                    start = secondaryPuck.position,
+                    start = hitSecPuck.position,
                     dir = secNormal,
                     puckRadius = board.puckRadius,
                     maxBounces = 1,
@@ -154,15 +156,16 @@ class PhysicsCalculator(
                 )
 
                 if (bankPuckHit != null) {
-                    targetPuck = bankPuckHit.puck
+                    val hitBankPuck = bankPuckHit.puck
+                    targetPuck = hitBankPuck
                     val bankGhost = cushionHit.point + reboundDir * bankPuckHit.distance
                     contactGhostPos = bankGhost
                     strikerSegments.add(TrajectorySegment(cushionHit.point, bankGhost, isCushionBounce = true))
                     nodes.add(TrajectoryNode(bankGhost, TrajectoryNodeType.PUCK_CONTACT, "Bank Contact"))
 
-                    val bankNormal = (targetPuck.position - bankGhost).normalized()
+                    val bankNormal = (hitBankPuck.position - bankGhost).normalized()
                     val pathResult = calculateCushionOrPocketPath(
-                        start = targetPuck.position,
+                        start = hitBankPuck.position,
                         dir = bankNormal,
                         puckRadius = board.puckRadius,
                         maxBounces = 1,
