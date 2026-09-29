@@ -7,8 +7,11 @@ workflows:
       - name: Set up local.properties
         script: |
           echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
-      - name: Build Android APK
+      - name: Generate Gradle Wrapper and Build APK
         script: |
+          if [ ! -f gradlew ]; then
+            gradle wrapper
+          fi
           chmod +x gradlew
           ./gradlew assembleDebug
     artifacts:
