@@ -1,51 +1,19 @@
-<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<!-- Floating Bubble Overlay Service -->
+<service
+    android:name="com.example.service.FloatingBubbleService"
+    android:enabled="true"
+    android:exported="false"
+    android:foregroundServiceType="specialUse" />
 
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.VIBRATE" />
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
-
-    <application
-        android:allowBackup="true"
-        android:icon="@android:drawable/sym_def_app_icon"
-        android:label="Legend Carrom"
-        android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
-
-        <!-- Main Launcher Activity -->
-        <activity
-            android:name="com.example.MainActivity"
-            android:exported="true"
-            android:windowSoftInputMode="adjustResize">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
-        <!-- Foreground Overlay Service -->
-        <service
-            android:name="com.example.service.OverlayService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
-
-        <!-- File Provider for APK updates -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-        </provider>
-
-    </application>
-
-</manifest>
+<!-- Optional Accessibility Gesture Service -->
+<service
+    android:name="com.example.service.AutoPlayService"
+    android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+    android:exported="true">
+    <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService" />
+    </intent-filter>
+    <meta-data
+        android:name="android.accessibilityservice"
+        android:resource="@xml/accessibility_service_config" />
+</service>
