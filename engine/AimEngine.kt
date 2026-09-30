@@ -32,6 +32,13 @@ data class Vector2(val x: Float, val y: Float) {
         if (deg < 0) deg += 360f
         return deg
     }
+
+    companion object {
+        fun fromAngle(deg: Float): Vector2 {
+            val rad = Math.toRadians(deg.toDouble())
+            return Vector2(cos(rad).toFloat(), sin(rad).toFloat())
+        }
+    }
 }
 
 data class BoardBounds(
@@ -58,31 +65,58 @@ data class AimTrajectory(
     val targetPuckIndex: Int = -1,
     val targetPocket: Vector2?,
     val pocketConfidence: Float = 0f,
-    val recommendedPowerPercent: Int = 50,
-    val cutAngleDegrees: Float = 0f
+    val powerPercent: Float = 0f,
+    val cutAngleDegrees: Float = 0f,
+    val isVisible: Boolean = true
 )
 
+/**
+ * 2D Precision Vector Calculation Engine for Carrom Trajectories.
+ * Features:
+ * - Dynamic line length proportional to drag distance (0% to 100% power)
+ * - Precise cut angles and deflection tangents
+ * - Puck ricochet vectors to cushions and pockets
+ */
 class AimEngine(private val bounds: BoardBounds = BoardBounds()) {
 
+    companion object {
+        const val MAX_TRAVEL_DISTANCE = 1100f
+    }
+
     /**
-     * Computes full strike prediction given striker position, drag vector, and detected pucks.
+     * Calculates trajectory paths dynamically mapped to power level (0% - 100%).
+     *
+     * @param strikerPos Current striker coordinates
+     * @param aimDirection Forward normalized aim vector
+     * @param puckPositions List of active puck coordinates
+     * @param powerPercent Current shot power (0f to 100f) derived from drag distance
+     * @param maxReflections Maximum cushion bounces to compute for puck
      */
     fun calculateAim(
         strikerPos: Vector2,
         aimDirection: Vector2,
         puckPositions: List<Vector2>,
+        powerPercent: Float,
         maxReflections: Int = 1
     ): AimTrajectory {
+        val clampedPower = powerPercent.coerceIn(0f, 100f)
+        if (clampedPower < 1f) {
+            return AimTrajectory(emptyList(), emptyList(), null, -1, null, 0f, 0f, 0f, isVisible = false)
+        }
+
         val dir = aimDirection.normalized()
         if (dir.lengthSquared() < 0.0001f) {
-            return AimTrajectory(emptyList(), emptyList(), null, -1, null)
+            return AimTrajectory(emptyList(), emptyList(), null, -1, null, 0f, 0f, 0f, isVisible = false)
         }
+
+        // Available travel distance budget based on power level
+        val maxStrikerDistance = (clampedPower / 100f) * MAX_TRAVEL_DISTANCE
 
         val strikerPath = mutableListOf<Vector2>()
         val puckPath = mutableListOf<Vector2>()
         strikerPath.add(strikerPos)
 
-        // Find earliest puck collision
+        // Find earliest puck collision along ray
         var earliestHitDist = Float.MAX_VALUE
         var hitPuckIndex = -1
         val collisionRadius = bounds.strikerRadius + bounds.puckRadius
@@ -110,8 +144,8 @@ class AimEngine(private val bounds: BoardBounds = BoardBounds()) {
         var bestConfidence = 0f
         var cutAngle = 0f
 
-        if (hitPuckIndex != -1) {
-            // Direct hit on a puck
+        // Check if striker reaches the puck with current power
+        if (hitPuckIndex != -1 && earliestHitDist <= maxStrikerDistance) {
             val ghost = strikerPos + dir * earliestHitDist
             ghostPos = ghost
             strikerPath.add(ghost)
@@ -124,32 +158,44 @@ class AimEngine(private val bounds: BoardBounds = BoardBounds()) {
             val cutDot = dir.dot(collisionNormal).coerceIn(-1f, 1f)
             cutAngle = Math.toDegrees(acos(cutDot.toDouble())).toFloat()
 
+            // Remaining power transferred to target puck
+            val remainingDistBudget = (maxStrikerDistance - earliestHitDist) * cutDot.coerceAtLeast(0.1f)
+
             // Striker deflecting trajectory
-            val deflectionMagnitude = abs(dir.dot(tangent)) * 120f
+            val deflectionMagnitude = abs(dir.dot(tangent)) * (maxStrikerDistance - earliestHitDist) * 0.4f
             if (deflectionMagnitude > 5f) {
                 val deflectDir = if (dir.dot(tangent) >= 0) tangent else tangent * -1f
                 strikerPath.add(ghost + deflectDir * deflectionMagnitude)
             }
 
-            // Puck path along collision normal
-            puckPath.add(targetPuck)
-            val puckRayEnd = tracePuckToPocketOrRail(targetPuck, collisionNormal, bounds.puckRadius, maxReflections, puckPath)
-            bestPocket = puckRayEnd.pocket
-            bestConfidence = puckRayEnd.confidence
+            // Puck path along collision normal scaled by remaining power
+            if (remainingDistBudget > 10f) {
+                puckPath.add(targetPuck)
+                val puckRayEnd = tracePuckToPocketOrRail(
+                    start = targetPuck,
+                    dir = collisionNormal,
+                    radius = bounds.puckRadius,
+                    remainingDist = remainingDistBudget,
+                    maxBounces = maxReflections,
+                    outPoints = puckPath
+                )
+                bestPocket = puckRayEnd.pocket
+                bestConfidence = puckRayEnd.confidence
+            }
         } else {
-            // Misses all pucks: rail reflection (Bank shot)
+            // Striker does not hit any puck within current power distance
             val cushionHit = raycastRail(strikerPos, dir, bounds.strikerRadius)
-            if (cushionHit != null) {
+            if (cushionHit != null && cushionHit.distance <= maxStrikerDistance) {
                 strikerPath.add(cushionHit.hitPoint)
-                val reboundDir = dir.reflect(cushionHit.normal)
-                strikerPath.add(cushionHit.hitPoint + reboundDir * 400f)
+                val remainingDistAfterBounce = maxStrikerDistance - cushionHit.distance
+                if (remainingDistAfterBounce > 5f) {
+                    val reboundDir = dir.reflect(cushionHit.normal)
+                    strikerPath.add(cushionHit.hitPoint + reboundDir * remainingDistAfterBounce)
+                }
             } else {
-                strikerPath.add(strikerPos + dir * 600f)
+                strikerPath.add(strikerPos + dir * maxStrikerDistance)
             }
         }
-
-        val totalDistance = calculateTotalDistance(strikerPath) + calculateTotalDistance(puckPath)
-        val power = ((totalDistance / 1000f) * 65f + 25f).toInt().coerceIn(30, 95)
 
         return AimTrajectory(
             strikerPath = strikerPath,
@@ -158,8 +204,9 @@ class AimEngine(private val bounds: BoardBounds = BoardBounds()) {
             targetPuckIndex = hitPuckIndex,
             targetPocket = bestPocket,
             pocketConfidence = bestConfidence,
-            recommendedPowerPercent = power,
-            cutAngleDegrees = cutAngle
+            powerPercent = clampedPower,
+            cutAngleDegrees = cutAngle,
+            isVisible = true
         )
     }
 
@@ -167,22 +214,25 @@ class AimEngine(private val bounds: BoardBounds = BoardBounds()) {
         start: Vector2,
         dir: Vector2,
         radius: Float,
+        remainingDist: Float,
         maxBounces: Int,
         outPoints: MutableList<Vector2>
     ): TraceResult {
         var currentOrigin = start
         var currentDir = dir.normalized()
+        var currentRemaining = remainingDist
         var matchedPocket: Vector2? = null
         var confidence = 0f
 
         for (bounce in 0..maxBounces) {
-            val railHit = raycastRail(currentOrigin, currentDir, radius) ?: break
+            val railHit = raycastRail(currentOrigin, currentDir, radius)
+            val stepDist = railHit?.distance ?: currentRemaining
 
             // Check if trajectory intersects any pocket before hitting the rail
             for (pocket in bounds.pockets) {
                 val toPocket = pocket - currentOrigin
                 val proj = toPocket.dot(currentDir)
-                if (proj in 0f..railHit.distance) {
+                if (proj in 0f..minOf(stepDist, currentRemaining)) {
                     val perpSq = toPocket.lengthSquared() - proj * proj
                     if (perpSq <= bounds.pocketRadius * bounds.pocketRadius) {
                         outPoints.add(pocket)
@@ -193,9 +243,17 @@ class AimEngine(private val bounds: BoardBounds = BoardBounds()) {
                 }
             }
 
+            if (railHit == null || railHit.distance > currentRemaining) {
+                outPoints.add(currentOrigin + currentDir * currentRemaining)
+                break
+            }
+
             outPoints.add(railHit.hitPoint)
+            currentRemaining -= railHit.distance
             currentOrigin = railHit.hitPoint
             currentDir = currentDir.reflect(railHit.normal)
+
+            if (currentRemaining <= 5f) break
         }
 
         return TraceResult(matchedPocket, confidence)
@@ -249,14 +307,6 @@ class AimEngine(private val bounds: BoardBounds = BoardBounds()) {
         }
 
         return if (hitPoint != null && hitNormal != null) RailHit(hitPoint, hitNormal, closestT) else null
-    }
-
-    private fun calculateTotalDistance(path: List<Vector2>): Float {
-        var total = 0f
-        for (i in 0 until path.size - 1) {
-            total += (path[i + 1] - path[i]).length()
-        }
-        return total
     }
 
     private data class RailHit(val hitPoint: Vector2, val normal: Vector2, val distance: Float)
