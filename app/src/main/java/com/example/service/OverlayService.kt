@@ -1,5 +1,6 @@
 package com.example.service
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -19,8 +20,10 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.provider.Settings
+import android.util.DisplayMetrics
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
@@ -36,11 +39,11 @@ import com.example.ui.overlay.TrajectoryOverlayView
 import com.example.vision.BoardDetector
 
 /**
- * Foreground Service responsible for:
- * 1. Attaching a transparent, full-screen pass-through Canvas layer to WindowManager.
- * 2. Continuous 30-60 FPS trajectory line calculations & rendering directly over other apps.
- * 3. MediaProjection screen frame capture & computer vision element tracking.
- * 4. Providing a movable floating toggle pill to control guidelines in-game.
+ * Foreground Service that manages:
+ * - MediaProjection real-time screen capture
+ * - Fullscreen pass-through TrajectoryOverlayView (hidden by default)
+ * - Interactive Striker Touch Zone with dynamic visibility and power mapping
+ * - Floating movable Control Window
  */
 class OverlayService : Service() {
 
@@ -65,7 +68,13 @@ class OverlayService : Service() {
     private var isProcessingFrame = false
     private var isRunning = false
 
-    // Real-time aiming state
+    // Dynamic Touch & Aim State
+    private var isDraggingStriker = false
+    private var dragStart = Vector2D(540f, 1800f)
+    private var currentPowerPercent = 50f
+    private var strikerTouchPad: View? = null
+
+    // Simulated / fallback aim state for interactive live guidance
     private var aimAngleDegrees = 65f
     private var strikerPosition = Vector2D(540f, 1800f)
     private var pucks = mutableListOf<Puck>()
@@ -89,10 +98,8 @@ class OverlayService : Service() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
 
-        // 1. Attach transparent Canvas overlay to WindowManager
         createTrajectoryOverlay()
-
-        // 2. Attach interactive draggable floating control button
+        createStrikerTouchZone()
         createFloatingControls()
 
         isRunning = true
@@ -116,12 +123,12 @@ class OverlayService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) return START_STICKY
 
-        if (intent.action == ACTION_STOP) {
+        val action = intent.action
+        if (action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
         }
 
-        // MediaProjection token passed from Activity
         val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
         val resultData: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
@@ -137,116 +144,10 @@ class OverlayService : Service() {
         return START_STICKY
     }
 
-    /**
-     * Attaches the transparent full-screen Canvas overlay layer to the WindowManager.
-     * Uses pass-through flags so touches directly penetrate to the game running underneath.
-     */
-    private fun createTrajectoryOverlay() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            return
-        }
-
-        val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-
-        // WindowManager parameters for non-intrusive transparent rendering:
-        // - FLAG_NOT_TOUCHABLE: Touch events pass through to the game beneath
-        // - FLAG_NOT_FOCUSABLE: Key and input focus remain on the active game
-        // - FLAG_LAYOUT_NO_LIMITS: Extends rendering across status bar and notch area
-        // - FLAG_HARDWARE_ACCELERATED: Hardware-accelerated GPU pipeline for 60 FPS
-        // - PixelFormat.TRANSLUCENT: Fully transparent Canvas background
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            layoutFlag,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                    WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-        }
-
-        overlayView = TrajectoryOverlayView(this).apply {
-            config = overlayConfig
-        }
-
-        try {
-            windowManager.addView(overlayView, params)
-        } catch (e: Exception) {
-            // Handled safely in case of revoked permissions
-        }
-    }
-
-    /**
-     * Attaches the movable floating pill widget to WindowManager.
-     * This view accepts touch gestures so users can reposition it and toggle features.
-     */
-    private fun createFloatingControls() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            return
-        }
-
-        val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            layoutFlag,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 40
-            y = 180
-        }
-
-        floatingControlView = FloatingControlView(
-            context = this,
-            windowManager = windowManager,
-            layoutParams = params,
-            onToggleOverlay = { enabled ->
-                overlayConfig = overlayConfig.copy(isOverlayEnabled = enabled)
-                overlayView?.config = overlayConfig
-            },
-            onToggleCushions = { enabled ->
-                overlayConfig = overlayConfig.copy(showCushionBounces = enabled)
-                overlayView?.config = overlayConfig
-            },
-            onRecalibrate = {
-                aimAngleDegrees = (aimAngleDegrees + 15f) % 360f
-            },
-            onClose = {
-                stopSelf()
-            }
-        )
-
-        try {
-            windowManager.addView(floatingControlView, params)
-        } catch (e: Exception) {
-            // Handled safely
-        }
-    }
-
-    /**
-     * Initializes MediaProjection virtual display for screen capture.
-     */
     private fun setupMediaProjection(resultCode: Int, data: Intent) {
         val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = mpManager.getMediaProjection(resultCode, data)
 
-        // Capture at 1/2 resolution to balance CV accuracy with 60 FPS performance
         val captureWidth = screenWidth / 2
         val captureHeight = screenHeight / 2
 
@@ -271,9 +172,6 @@ class OverlayService : Service() {
         )
     }
 
-    /**
-     * Analyzes captured screen frames and extracts board geometry, pucks, and striker.
-     */
     private fun processScreenFrame(reader: ImageReader) {
         isProcessingFrame = true
         var image: Image? = null
@@ -313,30 +211,186 @@ class OverlayService : Service() {
         }
     }
 
-    /**
-     * 60 FPS update loop that recalculates 2D trajectory vectors and triggers Canvas invalidation.
-     */
     private fun startSimulationLoop() {
         mainHandler.post(object : Runnable {
             override fun run() {
                 if (!isRunning) return
 
-                if (overlayConfig.isOverlayEnabled) {
-                    val aimDir = Vector2D.fromAngle(aimAngleDegrees)
-                    val trajectory = physicsCalculator.calculateTrajectory(
-                        strikerPos = strikerPosition,
-                        aimDirection = aimDir,
-                        pucks = pucks,
-                        maxBounces = if (overlayConfig.showCushionBounces) overlayConfig.maxCushionBounces else 0,
-                        allowSecondaryCollision = overlayConfig.showSecondaryCollisions
-                    )
-
-                    overlayView?.trajectoryResult = trajectory
+                if (isDraggingStriker && overlayConfig.isOverlayEnabled) {
+                    updateTrajectory()
                 }
 
                 mainHandler.postDelayed(this, 16) // ~60 FPS
             }
         })
+    }
+
+    private fun createTrajectoryOverlay() {
+        val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            layoutFlag,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                    WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+        }
+
+        // Hidden by default: only rendered when user drags inside striker zone
+        overlayView = TrajectoryOverlayView(this).apply {
+            config = overlayConfig
+            visibility = View.GONE
+        }
+        windowManager.addView(overlayView, params)
+    }
+
+    /**
+     * Interactive transparent touch window positioned over the bottom striker baseline.
+     * Detects user touch-down, drag trajectory, and release (touch-up) events.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun createStrikerTouchZone() {
+        val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        val density = resources.displayMetrics.density
+        val touchPadHeight = (180 * density).toInt()
+        val touchPadWidth = (screenWidth * 0.90f).toInt()
+
+        val params = WindowManager.LayoutParams(
+            touchPadWidth,
+            touchPadHeight,
+            layoutFlag,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = (screenHeight * 0.10f).toInt()
+        }
+
+        strikerTouchPad = View(this).apply {
+            setOnTouchListener { _, event ->
+                handleStrikerTouch(event)
+            }
+        }
+        windowManager.addView(strikerTouchPad, params)
+    }
+
+    /**
+     * Maps user drag motion on striker area to dynamic power and angle.
+     */
+    private fun handleStrikerTouch(event: MotionEvent): Boolean {
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                isDraggingStriker = true
+                dragStart = Vector2D(event.rawX, event.rawY)
+                currentPowerPercent = 15f
+
+                // Dynamic Trigger: Reveal guidelines when user touches down
+                overlayView?.visibility = View.VISIBLE
+                updateTrajectory()
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (isDraggingStriker) {
+                    val currentPos = Vector2D(event.rawX, event.rawY)
+                    val dragVector = currentPos - dragStart
+                    val dragDist = dragVector.length()
+                    val maxDragDist = 240f * resources.displayMetrics.density
+
+                    // Power 0% to 100% mapped to drag distance
+                    currentPowerPercent = ((dragDist / maxDragDist) * 100f).coerceIn(10f, 100f)
+
+                    // Slingshot mechanic: dragging backwards pulls the striker for forward launch
+                    if (dragDist > 10f) {
+                        val aimDir = Vector2D(-dragVector.x, -dragVector.y).normalized()
+                        aimAngleDegrees = aimDir.angleDegrees()
+                    }
+                    updateTrajectory()
+                }
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                // Dynamic Trigger: Immediately hide guidelines when striker is released
+                isDraggingStriker = false
+                overlayView?.visibility = View.GONE
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun updateTrajectory() {
+        if (!isDraggingStriker || !overlayConfig.isOverlayEnabled) return
+
+        val aimDir = Vector2D.fromAngle(aimAngleDegrees)
+        val trajectory = physicsCalculator.calculateTrajectory(
+            strikerPos = strikerPosition,
+            aimDirection = aimDir,
+            pucks = pucks,
+            maxBounces = if (overlayConfig.showCushionBounces) overlayConfig.maxCushionBounces else 0,
+            allowSecondaryCollision = overlayConfig.showSecondaryCollisions,
+            powerPercent = currentPowerPercent
+        )
+        overlayView?.trajectoryResult = trajectory
+    }
+
+    private fun createFloatingControls() {
+        val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            layoutFlag,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 40
+            y = 180
+        }
+
+        floatingControlView = FloatingControlView(
+            context = this,
+            windowManager = windowManager,
+            layoutParams = params,
+            onToggleOverlay = { enabled ->
+                overlayConfig = overlayConfig.copy(isOverlayEnabled = enabled)
+                overlayView?.config = overlayConfig
+            },
+            onToggleCushions = { enabled ->
+                overlayConfig = overlayConfig.copy(showCushionBounces = enabled)
+                overlayView?.config = overlayConfig
+            },
+            onRecalibrate = {
+                aimAngleDegrees = (aimAngleDegrees + 15f) % 360f
+            },
+            onClose = {
+                stopSelf()
+            }
+        )
+        windowManager.addView(floatingControlView, params)
     }
 
     private fun createNotificationChannel() {
@@ -387,22 +441,12 @@ class OverlayService : Service() {
         imageReader?.close()
         mediaProjection?.stop()
 
-        overlayView?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (e: Exception) {
-                // View already detached
-            }
-        }
-        floatingControlView?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (e: Exception) {
-                // View already detached
-            }
-        }
+        overlayView?.let { windowManager.removeView(it) }
+        floatingControlView?.let { windowManager.removeView(it) }
+        strikerTouchPad?.let { windowManager.removeView(it) }
         overlayView = null
         floatingControlView = null
+        strikerTouchPad = null
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
